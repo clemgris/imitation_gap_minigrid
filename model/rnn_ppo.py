@@ -46,7 +46,7 @@ def make_train(config):
 
     def train(rng):
         # INIT NETWORK
-        network = ActorCriticRNN(env.action_space(env_params).n, config=config)
+        network = ActorCriticRNN(env.action_space(env_params).n)
         rng, _rng = jax.random.split(rng)
         init_x = (
             jnp.zeros(
@@ -148,6 +148,8 @@ def make_train(config):
                             params, init_hstate[0], (traj_batch.obs, traj_batch.done)
                         )
                         log_prob = pi.log_prob(traj_batch.action)
+                        
+                        breakpoint()
 
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value + (

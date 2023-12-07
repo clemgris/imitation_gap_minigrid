@@ -38,7 +38,6 @@ class ScannedRNN(nn.Module):
 
 class ActorCriticRNN(nn.Module):
     action_dim: int
-    config: dict
 
     @nn.compact
     def __call__(self, rnn_state, x):
