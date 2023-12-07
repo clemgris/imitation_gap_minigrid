@@ -1,0 +1,6 @@
+# Logs
+/logs_rl
+/logs_bc
+
+# Debug
+debug.py
