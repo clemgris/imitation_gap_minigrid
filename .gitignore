@@ -4,3 +4,6 @@
 
 # Debug
 debug.py
+
+# Pycache
+model/__pycache__
