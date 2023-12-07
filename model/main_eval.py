@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import json
 import pickle
-from tqdm import trange
+import argparse
 
 import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
@@ -13,76 +13,97 @@ sys.path.append('../')
 sys.path.append('./')
 
 from environment.maze import MetaMaze
+from environment.wrappers import LogWrapper
 from model.rnn_policy import ScannedRNN, ActorCriticRNN
 
+parser = argparse.ArgumentParser(description="Agent evaluation")
+parser.add_argument('--type', '-t', choices=['rl', 'bc'], help='Agent trained with BC or RL')
+parser.add_argument('--expe_num', '-expe', type=str, help='Number of the experiment')
+parser.add_argument('--epochs', '-e', type=int, help='Number of training epochs')
+parser.add_argument('--n_evals', '-n', type=int, help='Number of evaluation environments')
 
-rng = jax.random.PRNGKey(123)
+if __name__ == "__main__":
+    args = parser.parse_args()
+    rng = jax.random.PRNGKey(42)
 
-expe_num = '20231128_144348'
+    logs = f'logs_{args.type}'
+    expe_num = args.expe_num
+    n_epochs = args.epochs
 
-# Load config
-with open(f'/data/draco/cleain/imitation_gap_minigrid/logs_rl/{expe_num}/args.json', 'r') as file:
-    config = json.load(file)
+    # Load config
+    with open(f'/data/draco/cleain/imitation_gap_minigrid/{logs}/{expe_num}/args.json', 'r') as file:
+        config = json.load(file)
 
-# Load params
-with open(f'/data/draco/cleain/imitation_gap_minigrid/logs_rl/{expe_num}/params_4.pkl', 'rb') as file:
-    params = pickle.load(file)
+    if 'is_expert' in config.keys():
+        config['full_obs'] = config['is_expert']
 
-# Def env
-env = MetaMaze(**config['params'])
-env_params = env.default_params
+    # Load params
+    with open(f'/data/draco/cleain/imitation_gap_minigrid/{logs}/{expe_num}/params_{n_epochs}.pkl', 'rb') as file:
+        params = pickle.load(file)
 
-# Def network
-network = ActorCriticRNN(env.action_space(env_params).n, config=config)
-
-lengths = []
-returns = []
-
-n_eval = 3
-for _ in trange(n_eval):
-
-    tt = 0
-    rng, key_reset, key_policy, key_step = jax.random.split(rng, 4)
-
-    # Create the Pendulum-v1 environment
+    # Def env
     env = MetaMaze(**config['params'])
+    env = LogWrapper(env)
     env_params = env.default_params
 
-    obs, env_state = env.reset(key_reset, env_params)
-    done = False
-    hstate = ScannedRNN.initialize_carry((1, 128))
+    # Def network
+    network = ActorCriticRNN(env.action_space(env_params).n)
 
-    while not done and tt < 200:
+    lengths = []
+    returns = []
+
+    n_eval = args.n_evals
+
+    # Init environment
+    rng, _rng = jax.random.split(rng)
+    reset_rng = jax.random.split(_rng, n_eval)
+    _, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
+    init_rnn_state = ScannedRNN.initialize_carry((n_eval, 128))
+
+    runner_state = (
+        params,
+        env_state,
+        jnp.zeros((n_eval), dtype=bool),
+        init_rnn_state,
+        init_rnn_state,
+        _rng,
+    )
+
+    # EVAL NETWORK
+    def _eval_step(runner_state, unused):
+
+        params, env_state, done, rnn_state, expert_rnn_state, rng = runner_state
+
+        # Get the imitator obs
+        obsv = jax.vmap(
+            env.get_obs, in_axes=(0, None, None)
+        )(env_state.env_state, env_params, config['full_obs']) # False
 
         rng, _rng = jax.random.split(rng)
 
-        # SELECT ACTION
-        ac_in = (obs[jnp.newaxis,jnp.newaxis, :], jnp.array([done])[jnp.newaxis,jnp.newaxis, :])
-        hstate, pi, value = network.apply(params, hstate, ac_in)
-        action = pi.sample(seed=_rng)
-        log_prob = pi.log_prob(action)
-        value, action, log_prob = (
-            value.squeeze(0),
-            action.squeeze(0),
-            log_prob.squeeze(0),
-        )
+        # Sample imitator action
+        ac_in = (obsv[jnp.newaxis, :], done[jnp.newaxis, :])
+        rnn_state, action_dist, _ = network.apply(params, rnn_state, ac_in)
+        imitator_action = action_dist.sample(seed=_rng).squeeze(0)
 
-        # STEP ENV
-        rng, _rng = jax.random.split(rng)
+        # Update the environment with the imitator action
+        rng_step = jax.random.split(_rng, n_eval)
 
-        # Update the environment
-        _, env_state, reward, done, info = env.step(_rng, env_state, action[0], env_params)
+        _, env_state, _, done, info = jax.vmap(
+            env.step, in_axes=(0, 0, 0, None)
+        )(rng_step, env_state, imitator_action, env_params)
+        
+        runner_state = (params, env_state, done, rnn_state, expert_rnn_state, rng)
 
-        # Get the observation
-        obs = env.get_obs(env_state, env_params, config['is_expert'])
+        return runner_state, info
 
-        tt += 1
+    _, eval_metric = jax.lax.scan(_eval_step, runner_state, None, 200)
 
-    lengths.append(tt)
-    returns.append(reward.item())
+    valid = eval_metric['returned_episode']
 
-# Save evaluation
-save_eval_path = f'/data/draco/cleain/imitation_gap_minigrid/logs_rl/{expe_num}/eval_{n_eval}.json'
-with open(save_eval_path, 'w') as file:
-    json.dump({'l': lengths,
-               'r': returns}, file)
+    # Save evaluation
+    save_eval_path = f'/data/draco/cleain/imitation_gap_minigrid/{logs}/{expe_num}/eval_{n_eval}.json'
+    with open(save_eval_path, 'w') as file:
+        json.dump({'l': eval_metric['returned_episode_lengths'][valid].tolist(),
+                'r': eval_metric['returned_episode_returns'][valid].tolist()
+                }, file)
