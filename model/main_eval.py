@@ -42,6 +42,7 @@ if __name__ == "__main__":
         params = pickle.load(file)
 
     # Def env
+    print('Init environment')
     env = MetaMaze(**config['params'])
     env = LogWrapper(env)
     env_params = env.default_params
@@ -67,17 +68,23 @@ if __name__ == "__main__":
         init_rnn_state,
         init_rnn_state,
         _rng,
+        jnp.zeros((config['params']['maze_size'], config['params']['maze_size']), dtype=int)
     )
+
+    def increment_values_at_indices(arr, x, y):
+        return arr.at[(x, y)].add(1)
 
     # EVAL NETWORK
     def _eval_step(runner_state, unused):
 
-        params, env_state, done, rnn_state, expert_rnn_state, rng = runner_state
+        params, env_state, done, rnn_state, expert_rnn_state, rng, visiting_map = runner_state
+        visiting_map = jax.vmap(increment_values_at_indices, in_axes=(None, 0, 0)
+                                )(visiting_map, env_state.env_state.pos[0], env_state.env_state.pos[1])
 
         # Get the imitator obs
         obsv = jax.vmap(
             env.get_obs, in_axes=(0, None, None)
-        )(env_state.env_state, env_params, config['full_obs']) # False
+        )(env_state.env_state, env_params, config['full_obs'])
 
         rng, _rng = jax.random.split(rng)
 
@@ -93,11 +100,11 @@ if __name__ == "__main__":
             env.step, in_axes=(0, 0, 0, None)
         )(rng_step, env_state, imitator_action, env_params)
         
-        runner_state = (params, env_state, done, rnn_state, expert_rnn_state, rng)
+        runner_state = (params, env_state, done, rnn_state, expert_rnn_state, rng, visiting_map)
 
         return runner_state, info
 
-    _, eval_metric = jax.lax.scan(_eval_step, runner_state, None, 200)
+    runner_state, eval_metric = jax.lax.scan(_eval_step, runner_state, None, 200)
 
     valid = eval_metric['returned_episode']
 
@@ -107,3 +114,14 @@ if __name__ == "__main__":
         json.dump({'l': eval_metric['returned_episode_lengths'][valid].tolist(),
                 'r': eval_metric['returned_episode_returns'][valid].tolist()
                 }, file)
+        
+    # Save evaluation
+    save_eval_path = f'/data/draco/cleain/imitation_gap_minigrid/{logs}/{expe_num}/eval_{n_eval}.json'
+    with open(save_eval_path, 'w') as file:
+        json.dump({'l': eval_metric['returned_episode_lengths'][valid].tolist(),
+                'r': eval_metric['returned_episode_returns'][valid].tolist()
+                }, file)
+        
+    save_eval_path = f'/data/draco/cleain/imitation_gap_minigrid/{logs}/{expe_num}/visiting_{n_eval}.pkl'
+    with open(save_eval_path, 'w') as file:
+        pickle.dump(runner_state[-1], file)
