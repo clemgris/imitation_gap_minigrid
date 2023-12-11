@@ -25,6 +25,8 @@ RUN python3 -m pip install --upgrade pip
 
 ADD requirements.txt .
 RUN PATH="${HOME}/.local/bin:${PATH}" python3 -m pip install -r requirements.txt
+RUN PATH="${HOME}/.local/bin:${PATH}" python3 -m pip install --upgrade "jax[cuda12_pip]" \
+-f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 
 ADD .tmux.conf .
 RUN cp .tmux.conf $HOME/.tmux.conf
