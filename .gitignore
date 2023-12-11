@@ -7,3 +7,4 @@ debug.py
 
 # Pycache
 model/__pycache__
+environment/__pycache__
