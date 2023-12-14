@@ -20,6 +20,7 @@ class EnvState:
 class EnvParams:
     # github.com/uber-research/backpropamine/blob/180c9101fa5be5a2da205da3399a92773d395091/simplemaze/maze.py#L414-L431
     reward: float = 10.0
+    time_penalisation = 9.0
     punishment: float = 0.0
     normalize_time: bool = False
     max_steps_in_episode: int = 200
@@ -105,7 +106,8 @@ class MetaMaze(environment.Environment):
             new_pos[0] == state.goal[0], new_pos[1] == state.goal[1]
         )
         reward = (
-            goal_reached * params.reward # Add goal reward
+            goal_reached * (params.reward # Add goal reward
+            - params.time_penalisation * (state.time / params.max_steps_in_episode)) # Penalise the number of steps
             + (1 - in_map) * params.punishment  # Add punishment for wall 
         )
 

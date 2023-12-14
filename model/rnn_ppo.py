@@ -148,8 +148,6 @@ def make_train(config):
                             params, init_hstate[0], (traj_batch.obs, traj_batch.done)
                         )
                         log_prob = pi.log_prob(traj_batch.action)
-                        
-                        breakpoint()
 
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value + (
@@ -247,7 +245,15 @@ def make_train(config):
                 _update_epoch, update_state, None, config["UPDATE_EPOCHS"]
             )
             train_state = update_state[0]
-            metric = jax.tree_map(jnp.mean, traj_batch.info)
+            valid = jnp.array(traj_batch.info['returned_episode'])
+            returns = jnp.array(traj_batch.info['returned_episode_returns'])
+            lengths = jnp.array(traj_batch.info['returned_episode_lengths'])
+            metric = {
+                'r': jnp.where(valid, returns, jnp.zeros_like(returns)).sum() / valid.sum(),
+                'l': jnp.where(valid, lengths, jnp.zeros_like(lengths)).sum() / valid.sum()
+                      }
+
+            # }jax.tree_map(lambda x : jnp.array(x)[traj_batch.info['returned_episode']].mean(), traj_batch.info)
             rng = update_state[-1]
             if config.get("DEBUG"):
 
