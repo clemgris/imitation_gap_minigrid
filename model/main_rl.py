@@ -2,6 +2,7 @@ from datetime import datetime
 import jax
 import json
 import pickle
+import time
 
 from rnn_ppo import make_train
 
@@ -16,21 +17,21 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 config = {
     "LR": 2.5e-4,
     "NUM_ENVS": 64,
-    "NUM_STEPS": 128,
-    "TOTAL_TIMESTEPS": 5e9,
+    "NUM_STEPS": 128, #64, 32, 128
+    "TOTAL_TIMESTEPS": 5e9, #5e6, 5e8
     "UPDATE_EPOCHS": 4,
     "NUM_MINIBATCHES": 4,
     "GAMMA": 0.99,
     "GAE_LAMBDA": 0.95,
     "CLIP_EPS": 0.2,
-    "ENT_COEF": 0.01,
+    "ENT_COEF": 0.01, # 0
     "VF_COEF": 0.5,
     "MAX_GRAD_NORM": 0.5,
     "ANNEAL_LR": True,
     "DEBUG": False,
     "params": {'maze_size': 13,
                'rf_size': 3},
-    "is_expert": False
+    "is_expert": False #False, True
 }
 
 print(f'Available devices: {jax.devices()}')
@@ -53,6 +54,9 @@ with open(os.path.join(log_folder, 'args.json'), 'w') as json_file:
 ##
 # TRAINING
 ##
+
+start= time.time()
+
 # with jax.disable_jit(): # DEBUG
 rng = jax.random.PRNGKey(123)
 train_jit = jax.jit(make_train(config))
@@ -68,3 +72,5 @@ with open(os.path.join(config['log_folder'], f'training_metrics_{config["UPDATE_
 # Save model weights
 with open(os.path.join(config['log_folder'], f'params_{config["UPDATE_EPOCHS"]}.pkl'), 'wb') as f:
     pickle.dump(out['runner_state'][0].params, f)
+
+print('Training time', time.time() - start)
