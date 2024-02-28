@@ -17,7 +17,7 @@ from environment.wrappers import LogWrapper
 from model.rnn_policy import ScannedRNN, ActorCriticRNN
 
 parser = argparse.ArgumentParser(description="Agent evaluation")
-parser.add_argument('--type', '-t', choices=['rl', 'bc'], help='Agent trained with BC or RL')
+parser.add_argument('--type', '-t', choices=['rl', 'bc', 'bc_rl'], help='Agent trained with BC or RL')
 parser.add_argument('--expe_num', '-expe', type=str, help='Number of the experiment')
 parser.add_argument('--epochs', '-e', type=int, help='Number of training epochs')
 parser.add_argument('--n_evals', '-n', type=int, help='Number of evaluation environments')
