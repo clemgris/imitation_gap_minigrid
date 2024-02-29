@@ -1,9 +1,14 @@
 # Logs
 /logs_rl
 /logs_bc
+/logs_bc_rl
+/ray_results
 
 # Debug
 debug.py
+
+# Animation
+animation
 
 # Pycache
 model/__pycache__
