@@ -17,26 +17,26 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # Training config
 trial_space = {
     "LR": 2.5e-4,
-    "NUM_ENVS": 32,
+    "NUM_ENVS": 64,
     "NUM_ENVS_EVAL": 100,
     "NUM_STEPS": 200,
     "NUM_EVAL_STEPS": 200,
     'freq_save': 10,
-    "TOTAL_TIMESTEPS": 5e5,
-    "NUM_EPOCHS": 201,
+    "TOTAL_TIMESTEPS": 5e7,
+    "NUM_EPOCHS": 101,
     "GAMMA": 0.99,
     "GAE_LAMBDA": 0.95,
     "CLIP_EPS": 0.2,
     "ENT_COEF": 0.01,
     "VF_COEF": 0.5,
-    "WEIGHT_BC": 0,
-    "WEIGHT_RL": tune.grid_search([1]), #, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+    "WEIGHT_BC": 1,
+    "WEIGHT_RL": tune.grid_search([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), #, 10]),
     "MAX_GRAD_NORM": 0.5,
     "ANNEAL_LR": True,
     "DEBUG": False,
     "params": {'maze_size': 13,
                'rf_size': 3},
-    "key": tune.grid_search([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+    "key": 42, #tune.grid_search([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
     "full_obs": False,
     "expert_expe_num": '20231214_190953', # expert (full obs)
     "load_path": '/data/draco/cleain/imitation_gap_minigrid/logs_rl'
@@ -65,10 +65,9 @@ def train(config):
     training = make_train(config)
     _ = training.train()
 
-# local_dir = f"ray_logs_bc_rl/w_bc_{trial_space['WEIGHT_BC']}_w_rl_{trial_space['WEIGHT_RL']}"
-# if not os.path.exists(local_dir):
-#     os.makedirs(local_dir)
+current_time = datetime.now() 
+date_string = current_time.strftime("%Y%m%d")
 
-train = tune.with_resources(train, {"gpu": 0.05})
-tuner = tune.Tuner(train, param_space=trial_space, run_config=RunConfig(local_dir='/data/draco/cleain/imitation_gap_minigrid/ray_results'))
+train = tune.with_resources(train, {"gpu": 0.5})
+tuner = tune.Tuner(train, param_space=trial_space, run_config=RunConfig(local_dir=f'/data/draco/cleain/imitation_gap_minigrid/ray_results_{date_string}'))
 tuner.fit()

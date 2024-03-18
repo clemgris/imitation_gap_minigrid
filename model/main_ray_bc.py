@@ -23,7 +23,7 @@ trial_space = {
     "NUM_EVAL_STEPS": 200,
     'freq_save': 10,
     "TOTAL_TIMESTEPS": 5e5,
-    "NUM_EPOCHS": 101,
+    "NUM_EPOCHS": 201,
     "GAMMA": 0.99,
     "GAE_LAMBDA": 0.95,
     "CLIP_EPS": 0.2,
@@ -35,8 +35,10 @@ trial_space = {
     "params": {'maze_size': 13,
                'rf_size': 3},
     "key": tune.grid_search([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
-    "full_obs": True,
-    "expert_expe_num": '20231214_190953', # expert (full obs) #'20231214_192147', # expert (limited obs) #
+    # "full_obs": True, # False,
+    "expert_expe_num": '20231214_190953', # expert (full obs)
+    "full_obs": False,
+    # "expert_expe_num": '20231214_192147', # expert (limited obs) #
     "load_path": '/data/draco/cleain/imitation_gap_minigrid/logs_rl'
 }
 
@@ -63,6 +65,9 @@ def train(config):
     training = make_train(config)
     _ = training.train()
 
+current_time = datetime.now() 
+date_string = current_time.strftime("%Y%m%d")
+
 train = tune.with_resources(train, {"gpu": 0.05})
-tuner = tune.Tuner(train, param_space=trial_space, run_config=RunConfig(local_dir='/data/draco/cleain/imitation_gap_minigrid/ray_results'))
+tuner = tune.Tuner(train, param_space=trial_space, run_config=RunConfig(local_dir=f'/data/draco/cleain/imitation_gap_minigrid/ray_results_{date_string}'))
 tuner.fit()
