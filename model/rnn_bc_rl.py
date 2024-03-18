@@ -29,6 +29,7 @@ class TransitionRL(NamedTuple):
     reward: jnp.ndarray
     log_prob: jnp.ndarray
     obs: jnp.ndarray
+    info: jnp.ndarray
 
 
 class make_train:
@@ -178,10 +179,7 @@ class make_train:
                     # Get the imitator obs
                     imitator_obsv = jax.vmap(
                         self.env.get_obs, in_axes=(0, None, None)
-                        )(env_state.env_state, 
-                         self.env_params, 
-                         self.config['full_obs']
-                         )
+                        )(env_state.env_state, self.env_params, self.config['full_obs'])
 
                     # Sample imitator action
                     ac_in = (imitator_obsv[jnp.newaxis, :], done[jnp.newaxis, :])
@@ -197,7 +195,7 @@ class make_train:
                     # Update the environment with the imitator action
                     rng, _rng = jax.random.split(rng)
                     rng_step = jax.random.split(_rng, self.config["NUM_ENVS"])
-                    _, env_state, reward, done, _ = jax.vmap(
+                    _, env_state, reward, done, info = jax.vmap(
                         self.env.step, in_axes=(0, 0, 0, None)
                     )(rng_step, 
                       env_state, 
@@ -210,7 +208,8 @@ class make_train:
                         value,
                         reward,
                         log_prob,
-                        imitator_obsv
+                        imitator_obsv,
+                        info
                     )
                     runner_state = (train_state, env_state, done, imitator_rnn_state, rng)
                     return runner_state, transition
@@ -300,8 +299,8 @@ class make_train:
                             )
                             return total_loss, (value_loss, loss_actor, entropy)
                         
-                        rl_loss, (value_loss, loss_actor, entropy) = _loss_fn_rl(params, traj_batch_rl, advantages, targets)
                         bc_loss = _loss_fn_bc(params, traj_batch_bc)
+                        rl_loss, (value_loss, loss_actor, entropy) = _loss_fn_rl(params, traj_batch_rl, advantages, targets)
                         
                         total_loss = (
                             self.config['WEIGHT_BC'] * bc_loss
@@ -316,12 +315,20 @@ class make_train:
                     return train_state, total_loss
                 
                 train_state, total_loss = _update(train_state, traj_batch_bc, traj_batch_rl, advantages, targets)
+                
+                valid = jnp.array(traj_batch_rl.info['returned_episode'])
+                returns = jnp.array(traj_batch_rl.info['returned_episode_returns'])
+                lengths = jnp.array(traj_batch_rl.info['returned_episode_lengths'])
+                eval_metric = {
+                    'r': jnp.where(valid, returns, jnp.zeros_like(returns)).sum() / valid.sum(),
+                    'l': jnp.where(valid, lengths, jnp.zeros_like(lengths)).sum() / valid.sum()
+                        }
 
-                return (train_state, rng), total_loss
+                return (train_state, rng), (total_loss, eval_metric)
             
-            (train_state, rng), metric = jax.lax.scan(_update_step, (train_state, rng), None, self.config["NUM_UPDATES"])
+            (train_state, rng), (losses, metrics) = jax.lax.scan(_update_step, (train_state, rng), None, self.config["NUM_UPDATES"])
             
-            return (train_state, rng), metric
+            return (train_state, rng), (losses, metrics)
         
         # EVALUATION LOOP
         def _evaluate_epoch(cary):
@@ -397,26 +404,28 @@ class make_train:
             metrics[epoch] = {}
             
             # Training
-            (train_state, rng), train_metric = _update_epoch((train_state, rng), None)
+            (train_state, rng), (train_metric, eval_metric) = _update_epoch((train_state, rng), None)
+
             metrics[epoch]['train'] = train_metric
+            metrics[epoch]['eval'] = eval_metric
 
             train_message = f"Epoch | {epoch} | Train | loss | {jnp.array(train_metric[0]).mean():.4f}"
             train_message += f"| bc_loss | {jnp.array(train_metric[1][0]).mean():.4f}"
             train_message += f"| rl_loss | {jnp.array(train_metric[1][1]).mean():.4f}"
             print(train_message)
 
-            # Validation            
-            val_metric = _evaluate_epoch((train_state, rng))
-            metrics[epoch]['validation'] = val_metric
+            # # Validation            
+            # val_metric = _evaluate_epoch((train_state, rng))
+            # metrics[epoch]['validation'] = val_metric
 
-            val_message = f'Epoch | {epoch} | Val | '
-            for key in ['returned_episode_lengths', 'returned_episode_returns', 'log_prob']:
-                if key == 'log_prob':
-                    val_message += f" {key} | {jnp.array(val_metric[key]).mean():.4f} | "
-                else:
-                    val_message += f" {key} | {jnp.array(val_metric[key])[val_metric['returned_episode']].mean():.4f} | "
+            # val_message = f'Epoch | {epoch} | Val | '
+            # for key in ['returned_episode_lengths', 'returned_episode_returns', 'log_prob']:
+            #     if key == 'log_prob':
+            #         val_message += f" {key} | {jnp.array(val_metric[key]).mean():.4f} | "
+            #     else:
+            #         val_message += f" {key} | {jnp.array(val_metric[key])[val_metric['returned_episode']].mean():.4f} | "
 
-            print(val_message)
+            # print(val_message)
 
             if (epoch % self.config['freq_save'] == 0) or (epoch == self.config['NUM_EPOCHS'] - 1):
                 past_log_metric = os.path.join(self.config['log_folder'], f'training_metrics_{epoch - self.config["freq_save"]}.pkl')
