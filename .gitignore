@@ -2,6 +2,7 @@
 /logs_rl
 /logs_bc
 /logs_bc_rl
+/logs_ppo_bc
 /ray_results
 
 # Debug
